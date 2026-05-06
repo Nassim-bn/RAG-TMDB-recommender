@@ -18,7 +18,7 @@ def read_file(file_path):
 
 
 def retrieve(question, n=3):
-    embedded_question = model.encode([question],normalize_embeddings=True).tolist()[0] # On embedde la question avec le model SentenceTransformer
+    embedded_question = model.encode([question.lower()],normalize_embeddings=True).tolist()[0] # On embedde la question avec le model SentenceTransformer
     results = collection.query(query_embeddings=[embedded_question], n_results=n)
     # results["documents"] est [[film1, film2, film3]], [0] récupère la liste intérieure
     return results["documents"][0], results["metadatas"][0]
@@ -26,8 +26,6 @@ def retrieve(question, n=3):
 
 def build_context(question):
     chunks, metadatas = retrieve(question, n=3)
-
-    # On numérote les films pour car le LLM comprendra mieux
     chunks_formates = ""
     for i, (chunk, meta) in enumerate(zip(chunks, metadatas)):
         chunks_formates += f"\n--- Film {i+1} ---\n{chunk}\n"

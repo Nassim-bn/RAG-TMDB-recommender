@@ -34,13 +34,13 @@ def build_documents(df):
         annee = str(row["release_date"]).split("-")[0] if pd.notna(row["release_date"]) else "Inconnu"
 
         texte = (
-            f"Title: {row['title']} | Original title: {row['original_title']} | "
-            f"Year: {annee} | Language: {row['original_language']} | "
-            f"Genres: {row['genres_parsed']} | Keywords: {row['keywords_parsed']} | "
-            f"Rating: {row['vote_average']}/10 | Votes: {row['vote_count']} | "
-            f"Runtime: {row['runtime']} min | Tagline: {row['tagline']} | "
-            f"Overview: {row['overview']}"
-        )
+            f"Titre: {row['title']} | Titre original: {row['original_title']} | "
+            f"Année: {annee} | Langue: {row['original_language']} | "
+            f"Genres: {row['genres_parsed']} | Mots-clés: {row['keywords_parsed']} | "
+            f"Note: {row['vote_average']}/10 | Votes: {row['vote_count']} | "
+            f"Durée: {row['runtime']} min | Tagline: {row['tagline']} | "
+            f"Synopsis: {row['overview']}"
+        ).lower()  # On met tout en minuscules pour bien retrouver les donnes
 
         documents.append({
             "id": f"movie_{row['id']}",
