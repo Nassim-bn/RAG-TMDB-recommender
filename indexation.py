@@ -34,9 +34,12 @@ def build_documents(df):
         annee = str(row["release_date"]).split("-")[0] if pd.notna(row["release_date"]) else "Inconnu"
 
         texte = (
-            f"Titre: {row['title']} | Année: {annee} | Genres: {row['genres_parsed']} | "
-            f"Mot-clés: {row['keywords_parsed']} | Rating: {row['vote_average']}/10 | "
-            f"Durée: {row['runtime']} min | Tagline: {row['tagline']} | Overview: {row['overview']}"
+            f"Title: {row['title']} | Original title: {row['original_title']} | "
+            f"Year: {annee} | Language: {row['original_language']} | "
+            f"Genres: {row['genres_parsed']} | Keywords: {row['keywords_parsed']} | "
+            f"Rating: {row['vote_average']}/10 | Votes: {row['vote_count']} | "
+            f"Runtime: {row['runtime']} min | Tagline: {row['tagline']} | "
+            f"Overview: {row['overview']}"
         )
 
         documents.append({
