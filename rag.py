@@ -6,7 +6,7 @@ from sentence_transformers import SentenceTransformer
 
 load_dotenv()
 
-# Initialisé UNE SEULE FOIS au chargement du script
+# Initialisé juste 1 seule fois au chargement du script
 model = SentenceTransformer("distiluse-base-multilingual-cased-v2")
 chroma = chromadb.PersistentClient(path="./tmdb_vector_db")
 collection = chroma.get_or_create_collection("films")
@@ -17,15 +17,24 @@ def read_file(file_path):
         return file.read()
 
 
-def retrieve(question, n=3):
-    embedded_question = model.encode([question.lower()],normalize_embeddings=True).tolist()[0] # On embedde la question avec le model SentenceTransformer
+def retrieve(question, n=5):
+    # On embedde la question avec le MÊME modèle qu'à l'indexation
+    # On met en minuscules car les textes indexés sont aussi en minuscules
+    embedded_question = model.encode(
+        [question.lower()],
+        normalize_embeddings=True
+    ).tolist()[0]
+
     results = collection.query(query_embeddings=[embedded_question], n_results=n)
-    # results["documents"] est [[film1, film2, film3]], [0] récupère la liste intérieure
+
+    # results["documents"] est [[film1, film2, film3]]
+    # le [0] récupère la liste intérieure
     return results["documents"][0], results["metadatas"][0]
 
 
 def build_context(question):
-    chunks, metadatas = retrieve(question, n=3)
+    chunks, metadatas = retrieve(question, n=5)
+
     chunks_formates = ""
     for i, (chunk, meta) in enumerate(zip(chunks, metadatas)):
         chunks_formates += f"\n--- Film {i+1} ---\n{chunk}\n"
