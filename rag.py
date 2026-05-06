@@ -6,10 +6,11 @@ from sentence_transformers import SentenceTransformer
 
 load_dotenv()
 
-# Initialisé juste 1 seule fois au chargement du script
+# Tout initialisé UNE SEULE FOIS au chargement du script
 model = SentenceTransformer("distiluse-base-multilingual-cased-v2")
 chroma = chromadb.PersistentClient(path="./tmdb_vector_db")
 collection = chroma.get_or_create_collection("films")
+client = Groq(api_key=os.environ["GROQ_API_KEY"])
 
 
 def read_file(file_path):
@@ -18,17 +19,12 @@ def read_file(file_path):
 
 
 def retrieve(question, n=5):
-    # On embedde la question avec le MÊME modèle qu'à l'indexation
-    # On met en minuscules car les textes indexés sont aussi en minuscules
     embedded_question = model.encode(
         [question.lower()],
         normalize_embeddings=True
     ).tolist()[0]
 
     results = collection.query(query_embeddings=[embedded_question], n_results=n)
-
-    # results["documents"] est [[film1, film2, film3]]
-    # le [0] récupère la liste intérieure
     return results["documents"][0], results["metadatas"][0]
 
 
@@ -44,8 +40,6 @@ def build_context(question):
 
 
 def answer_question(question):
-    client = Groq(api_key=os.environ["GROQ_API_KEY"])
-
     chat_completion = client.chat.completions.create(
         messages=[
             {
@@ -59,7 +53,6 @@ def answer_question(question):
         ],
         model="llama-3.3-70b-versatile"
     )
-
     return chat_completion.choices[0].message.content
 
 
