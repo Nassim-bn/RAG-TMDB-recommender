@@ -6,14 +6,14 @@ import chromadb
 
 def load_and_prepare_dataframe(csv_path):
     """
-    Charge le CSV et parse les colonnes JSON (genres, keywords) avec les nouvelles colonnes genres_parsed et keywords_parsed.
+    Charge le CSV et parse les colonnes JSON (genres, keywords) avec les nouvelles colonnes genres_parsed et keywords_parsed
     """
     df = pd.read_csv(csv_path)
 
     def parse_json_names(json_str):
         try:
             items = json.loads(json_str)
-            return ", ".join([item["name"] for item in items])
+            return ", ".join([item["name"] for item in items]) # On a le texte en string separé avec des ,
         except:
             return ""
 
@@ -26,7 +26,7 @@ def load_and_prepare_dataframe(csv_path):
 
 def build_documents(df):
     """
-    Construit la liste de dictionnaires {id, contenu, metadata} à partir du DataFrame.
+    Construit la liste de dictionnaires {id, contenu, metadata} à partir du DataFrame
     """
     documents = []
     for index, row in df.iterrows():
@@ -61,8 +61,8 @@ def get_embeddings(documents,model=SentenceTransformer):
     Embedding avec le modèle SentenceTransformer.
     """
     #  décompression de la liste de dicts en trois listes séparées (c'est ce que ChromaDB attend)
-    ids       = [doc["id"]       for doc in documents]
-    chunks    = [doc["contenu"]  for doc in documents]
+    ids= [doc["id"] for doc in documents]
+    chunks = [doc["contenu"]  for doc in documents]
     metadatas = [doc["metadata"] for doc in documents]
     embeddings = model.encode(
         chunks,
