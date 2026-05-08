@@ -1,10 +1,64 @@
-# RAG - Système de recommandation de films TMDB
+# RAG — Système de recommandation de films TMDB
 
-Un Agent de recommandation de films basé sur le dataset TMDB 5000.
+## 1. Problématique et solution
+
+Un LLM classique comme Llama est entraîné sur des données jusqu'à une certaine date. Il ne connaît pas vos documents internes, ne peut pas répondre sur une base de données spécifique, et invente des réponses quand il ne sait pas — c'est ce qu'on appelle une **hallucination**.
+
+Ce projet implémente un **RAG (Retrieval-Augmented Generation)** — une technique qui enrichit le contexte du LLM avec des informations récupérées dynamiquement depuis une base de connaissances. Au lieu de répondre de mémoire, le LLM consulte les bons documents avant de répondre.
+
+**Ce que ça résout concrètement** : un utilisateur peut poser des questions en langage naturel sur des films et obtenir des recommandations basées sur une vraie base de données, sans hallucination.
+
+Exemples de requêtes supportées :
+- *"Je cherche un thriller psychologique avec un retournement de situation inattendu"*
+- *"Recommande-moi un film d'animation familial sorti après 2010"*
+- *"Un film comme Inception mais plus accessible ?"*
 
 ---
 
-## Comment lancer le projet
+## 2. Dataset
+
+Le projet utilise le [TMDB 5000 Movie Dataset](https://www.kaggle.com/datasets/tmdb/tmdb-movie-metadata) disponible sur Kaggle, composé de deux fichiers :
+
+**`tmdb_5000_movies.csv`** — 4803 films avec leurs métadonnées (titre, synopsis, genres, note, durée, etc.)
+
+**`tmdb_5000_credits.csv`** — cast et équipe technique de chaque film. Ce fichier n'a pas été intégré au pipeline pour deux raisons : la colonne `cast` contient des dizaines d'acteurs par film, difficiles à indexer sans polluer l'embedding ; la colonne `crew` contient le réalisateur mais sa valeur ajoutée était limitée par rapport à la complexité du merge. C'est une piste d'amélioration identifiée.
+
+### Colonnes incluses dans le texte embedé
+
+| Colonne                       | Raison                                      |
+| ----------------------------- | ------------------------------------------- |
+| `title` / `original_title`    | Identification du film                      |
+| `genres`                      | Critère de recherche principal (JSON parsé) |
+| `keywords`                    | Thèmes et ambiance du film (JSON parsé)     |
+| `overview`                    | Synopsis — la plus riche sémantiquement     |
+| `tagline`                     | Accroche — capture l'esprit du film         |
+| `vote_average` / `vote_count` | Note et popularité                          |
+| `release_date`                | Année de sortie                             |
+| `runtime`                     | Durée                                       |
+| `original_language`           | Langue originale                            |
+
+### Colonnes ignorées
+
+`budget`, `revenue`, `production_companies`, `production_countries`, `spoken_languages`, `homepage` — pas utiles pour la recherche sémantique.
+
+---
+
+## 3. Structure du repo
+
+```
+.
+├── indexation.py       # Classe VectorDB — chargement CSV, embedding, base vectorielle
+├── rag.py              # Classe RAG — recherche + génération de réponses
+├── config.py           # Constantes centralisées (modèles, chemins)
+├── context.txt         # Prompt système du LLM
+├── requirements.txt    # Dépendances Python
+├── README.md
+└── compte_rendu.pdf
+```
+
+---
+
+## 4. Comment lancer le projet
 
 ### 1. Installation des dépendances
 
@@ -25,28 +79,22 @@ pandas
 
 ### 2. Clé API Groq
 
-Créer un fichier `.env` à la racine du projet :
+Créer un fichier `.env` à la racine :
 
 ```
 GROQ_API_KEY=ta_clé_ici
 ```
 
-### 3. Indexation (à faire une seule fois)
 
-```bash
-python indexation.py
-```
-
-Cela charge le CSV, construit les textes, les embedde et crée la base vectorielle dans `./tmdb_vector_db/`. Si la base existe déjà, l'indexation est ignorée automatiquement.
-
-### 4. Lancer l'assistant
+### 3. Lancer l'assistant
 
 ```bash
 python rag.py
 ```
 
+Au premier lancement, la base vectorielle est créée automatiquement depuis le CSV — cela prend quelques minutes. Aux lancements suivants, elle est rechargée instantanément depuis le disque.
 
-Une fois lancé, le système affiche une invite de commande interactive. Tu peux poser autant de questions que tu veux sur les films. Pour quitter, tape quit, exit ou q.
+Une fois lancé, le système affiche une invite interactive. Pour quitter, tapez `quit`, `exit` ou `q`.
 
 ```
 Assistant films TMDB prêt. Tapez 'quit' pour quitter.
@@ -56,100 +104,61 @@ Votre question : Je cherche un thriller psychologique
 Votre question : quit
 ```
 
-## L'embedding
+---
 
-Le modèle utilisé est `distiluse-base-multilingual-cased-v2`
+## 5. Modèles utilisés
 
+### Modèle d'embedding
+
+**Modèle actuel : `paraphrase-multilingual-mpnet-base-v2`**
+
+Après avoir utilisé `distiluse-base-multilingual-cased-v2` (512 dimensions) (un modèle léger et rapide) et après, c'est `paraphrase-multilingual-mpnet-base-v2`  qui a été utilisé(768 dimensions) pour deux raisons :
+
+- **Plus performant** : 768 dimensions vs 512 — vecteurs plus riches, meilleure capture des nuances sémantiques
+- **Mieux optimisé pour le multilingue** : les requêtes en français retrouvent mieux les films dont les données sont en anglais
+
+La migration nécessite de supprimer la base vectorielle et de réindexer depuis zéro.
+
+**Note importante** : le nom du modèle est sauvegardé dans les métadonnées de la collection ChromaDB. Au rechargement, le système relit automatiquement le bon modèle — impossible d'utiliser accidentellement un modèle différent de celui utilisé à l'indexation.
+
+### Modèle LLM
+
+**`llama-3.3-70b-versatile`** via l'API Groq. Choisi pour sa qualité de formulation et sa capacité à suivre des instructions complexes dans le prompt système. Le tier gratuit Groq offre une vitesse d'inférence élevée sans frais.
 
 ---
 
+## 6. Détails des fichiers
 
-## RQ : Pas de chunking
+### `config.py`
+Centralise toutes les constantes du projet — nom du modèle d'embedding, modèle LLM, chemin de la base, nom de la collection, chemin du CSV. Principe DRY : une seule valeur à changer pour impacter tout le projet.
 
-Le chunking consiste à découper un document long en morceaux cohérents avant de les embedder. C'est utile quand les documents sont longs (pdf, articles, etc.)
+### `indexation.py` — classe `VectorDB`
+Gère toute la logique de la base vectorielle :
+- **`__init__`** : si la base existe sur disque → `load_vector_db()`, sinon → `create_vector_db()`. C'est le mécanisme d'idempotence — on ne réindexe jamais inutilement.
+- **`create_vector_db`** : charge le CSV, parse les colonnes JSON, construit les textes, embedde, stocke dans ChromaDB.
+- **`load_vector_db`** : recharge la base existante et relit le modèle d'embedding depuis les métadonnées.
+- **`retrieve`** : embedde la question et retourne les n films les plus proches par similarité cosinus.
 
-Dans notre cas, on a pour chaque film des court texte à assembler ensemble (titre, genres, overview, etc.) — le résultat final fait environ 300-500 tokens, ce qui est largement gérable par les LLM.
+### `rag.py` — classe `RAG`
+Gère le système de questions-réponses :
+- **`__init__`** : initialise le client Groq et instancie `VectorDB`.
+- **`build_context`** : appelle `retrieve()`, formate les films avec `--- Film N ---` et injecte dans le prompt système.
+- **`answer_question`** : envoie le contexte + la question à l'API Groq et retourne la réponse.
 
----
-
-## Le système RAG
-
-### Format du contexte injecté au LLM
-
-Pour chaque question, on embedde la question avec le même modèle, on cherche les 3 films les plus proches dans ChromaDB, et on injecte leurs textes dans le prompt système :
-
-```
-Tu es un assistant expert en recommandation de films.
-
-Voici les films les plus pertinents :
-
---- Film 1 ---
-Titre: Shutter Island | Année: 2010 | Genres: Thriller, Mystery | Rating: 8.1/10 | ...
-
---- Film 2 ---
-Titre: Black Swan | Année: 2010 | Genres: Thriller, Drama | Rating: 7.2/10 | ...
-
---- Film 3 ---
-Titre: Gone Girl | Année: 2014 | Genres: Thriller, Mystery | Rating: 8.1/10 | ...
-```
-
-Le format `--- Film N ---` a été choisi pour que le LLM distingue clairement les différents films dans son contexte.
-
+### `context.txt`
+Prompt système du LLM. Définit le comportement de l'assistant : ne répondre que sur la base des films fournis, citer titre/année/genres/note, expliquer pourquoi le film correspond, refuser les questions hors sujet, corriger poliment les informations erronées.
 
 ---
 
-## Structure du projet (pushé sur github)
-
-```
-
-├── indexation.py        # Chargement CSV, embedding, création base vectorielle
-├── rag.py               # Agent RAG : recherche + génération de réponses
-├── context.txt          # Prompt système du LLM
-├── tmdb_5000_movies.csv # Dataset TMDB
-├── requirements.txt     # Dépendances Python
-└── README.md
-```
-
----
+## 7. Réponses aux questions du sujet
 
 #### Q1. Comment convertir chaque ligne CSV en texte embedable ?
 
-Les données TMDB sont tabulaires — chaque film est une ligne avec des colonnes séparées. Le modèle d'embedding ne comprend que du texte continu, il a donc fallu "aplatir" chaque ligne en une phrase descriptive cohérente.
-
-**Colonnes incluses dans le texte embedé :**
-
-| Colonne        | Raison                                                 |
-| -------------- | ------------------------------------------------------ |
-| `title`        | Identifiant principal du film                          |
-| `release_date` | Permet les recherches par période ("sorti après 2010") |
-| `genres`       | Critère de recherche majeur ("thriller", "animation")  |
-| `keywords`     | Capture l'ambiance et les thèmes précis du film        |
-| `vote_average` | Permet de filtrer par qualité ("bien noté")            |
-| `runtime`      | Utile pour certaines requêtes                          |
-| `tagline`      | Résume l'esprit du film en une phrase                  |
-| `overview`     | Description principale — le plus riche sémantiquement  |
-
-**Colonnes ignorées dans l'embedding (gardées uniquement en métadonnées) :**
-
-`budget`, `revenue`, `production_companies`, `production_countries`, `spoken_languages`, `homepage` — ces informations n'aident pas à la recherche sémantique.
-
-**Format du texte construit pour chaque film :**
-
-```
-Titre: Avatar | Année: 2009 | Genres: Action, Adventure, Fantasy, Science Fiction |
-Mot-clés: culture clash, space war, alien... | Rating: 7.2/10 | Durée: 162 min |
-Tagline: Enter the World of Pandora. | Overview: In the 22nd century, a paraplegic Marine...
-```
+Les données TMDB sont tabulaires — chaque film est une ligne avec des colonnes séparées. Le modèle d'embedding ne comprend que du texte continu, il a donc fallu "aplatir" chaque ligne en une phrase descriptive cohérente en assemblant les colonnes les plus utiles sémantiquement (voir section 2).
 
 #### Q2. Comment parser les genres et keywords au format JSON imbriqué ?
 
-Les colonnes `genres` et `keywords` sont des json imbriqué dans le CSV :
-
-```
-"[{""id"": 28, ""name"": ""Action""}, {""id"": 12, ""name"": ""Adventure""}]"
-```
-
-Pandas lit ça comme une simple string c'est pour ça qu'il faut d'abord la parser avec `json.loads()` pour obtenir une vraie liste Python, puis extraire uniquement les champs `"name"` :
+Les colonnes `genres` et `keywords` contiennent du JSON imbriqué dans le CSV. Pandas les lit comme des strings brutes. On applique `json.loads()` pour convertir en liste Python, puis on extrait les champs `"name"` :
 
 ```python
 def parse_json_names(json_str):
@@ -158,60 +167,53 @@ def parse_json_names(json_str):
         return ", ".join([item["name"] for item in items])
     except:
         return ""
-
-df["genres_parsed"] = df["genres"].apply(parse_json_names)
-df["keywords_parsed"] = df["keywords"].apply(parse_json_names)
 ```
-
-Résultat : `"Action, Adventure, Fantasy, Science Fiction"` — une string propre directement intégrable dans le texte embedé.
-
----
 
 #### Q3. Stratégie de persistance
 
-L'indexation de 4803 films prend plusieurs minutes. Pour ne pas avoir à la relancer à chaque test, deux mécanismes sont en place :
+Deux mécanismes évitent de réindexer à chaque lancement :
 
-**ChromaDB PersistentClient** — la base est sauvegardée sur disque dans `./tmdb_vector_db/` et rechargée automatiquement à chaque lancement de `rag.py`. Aucun recalcul des vecteurs n'est nécessaire.
+**`os.path.exists()`** dans le constructeur `VectorDB.__init__` — si le dossier de la base existe, on la recharge sans recalculer les embeddings.
 
-**Vérification avant indexation** — dans `indexation.py`, avant d'appeler `collection.add()`, on vérifie si la collection est déjà remplie :
-
-```python
-if collection.count() > 0:
-    print(f"Base déjà existante avec {collection.count()} films. Pas de réindexation.")
-    return
-```
-
-et ca dans la fonction **store_in_chromadb**
-
----
-
+**Modèle sauvegardé dans les métadonnées ChromaDB** — au rechargement, le nom du modèle est relu depuis la collection pour garantir la cohérence.
 
 #### Q4. Comment guider le LLM pour des recommandations pertinentes ?
 
-Dans le prompt système (`context.txt`) on a indiqué :
-
-- De répondre **que** sur la base des films fournis et aucune invention
-- De **Citer** le titre, l'année, les genres et la note pour chaque recommandation
-- D'**Expliquer** pourquoi le film correspond à la demande
-- De **Corriger** poliment l'utilisateur si une information est erronée
-
-La première version du prompt était trop permissive (celle utilsé pedant le cours) — le LLM recommandait des films même pour des questions hors sujet (ex: "meilleur restaurant à Paris" → il recommandait un film sur la cuisine). On a ajouté une règle explicite : si la question ne concerne pas les films, refuser clairement.
+Le prompt système (`context.txt`) impose des règles strictes : ne répondre que sur les films fournis, citer titre/année/genres/note, expliquer le choix, refuser les questions hors sujet, corriger les erreurs de l'utilisateur. La première version était trop permissive — le LLM recommandait des films même pour des questions hors sujet.
 
 #### Q5. Que faire si l'utilisateur demande un film de 2024 ?
 
-Le dataset TMDB utilisé couvre les films jusqu'en 2017. Si un utilisateur demande un film très récent, le système ne le trouvera pas dans sa base. Le comportement attendu est que le LLM réponde honnêtement qu'il ne dispose pas de cette information, conformément à la règle "ne répondre que sur la base des films fournis". Il ne doit pas inventer ni halluciner un film qu'il ne connaît pas.
-
-
-
+Le dataset couvre les films jusqu'en 2017. Le LLM doit répondre honnêtement qu'il ne dispose pas de cette information — règle explicite dans le prompt système.
 
 ---
 
-## Exemples de questions
+## 8. Types de questions et limites
+
+### Questions qui fonctionnent bien 
 
 ```
 Je cherche un thriller psychologique avec un retournement de situation inattendu
-Un film d'animation familial sorti après 2010
+Un film d'animation familial
 Un film comme Inception mais plus accessible ?
-Je cherche Avatar, c'est un film sorti en 2015 non ?  ← le système corrige
-Quel est le meilleur restaurant à Paris ?             ← le système refuse
+Un film avec une ambiance sombre et oppressante
+Un film de science-fiction sur l'intelligence artificielle
+Un film romantique avec une happy end
+Spiderman
 ```
+
+Ces questions fonctionnent car elles décrivent une **ambiance, un thème ou un genre** — le modèle d'embedding excelle à la similarité sémantique sur ce type de requêtes.
+
+### Questions problématiques
+
+```
+Classe les films les mieux notés
+Un film sorti après 2010
+Un film avec Leonardo DiCaprio
+Un film de Christopher Nolan
+Le film le plus long
+Les films avec plus de 10 000 votes
+```
+
+**Pourquoi ça ne fonctionne pas** : le modèle d'embedding ne comprend pas les relations numériques ("supérieur à", "meilleur que") ni les contraintes temporelles strictes. Il cherche par similarité sémantique — pas par filtres. La solution serait d'ajouter des filtres sur les métadonnées ChromaDB (`where={"note": {"$gte": 8.0}}`), mais cela nécessite de détecter automatiquement l'intention de la question (query parsing) — une amélioration hors scope pour ce projet.
+
+De plus, le réalisateur et les acteurs ne sont pas indexés (voir section 2), ce qui explique les mauvais résultats sur ces critères.
