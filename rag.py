@@ -1,62 +1,50 @@
 from groq import Groq
 from dotenv import load_dotenv
 import os
-import chromadb
-from sentence_transformers import SentenceTransformer
-
-load_dotenv()
-
-# Tout initialisé UNE SEULE FOIS au chargement du script
-model = SentenceTransformer("distiluse-base-multilingual-cased-v2")
-chroma = chromadb.PersistentClient(path="./tmdb_vector_db")
-collection = chroma.get_or_create_collection("films")
-client = Groq(api_key=os.environ["GROQ_API_KEY"])
+from indexation import VectorDB
+from config import LLM_MODEL_NAME, DB_PATH, CSV_PATH
 
 
-def read_file(file_path):
-    with open(file_path, "r") as file:
-        return file.read()
+class RAG:
+    def __init__(self, vector_db_name):
+        load_dotenv()
+        self.client = Groq(api_key=os.environ["GROQ_API_KEY"])
+        self.vector_db = VectorDB(vector_db_name, csv_path=CSV_PATH)
 
+    @staticmethod
+    def read_file(file_path):
+        with open(file_path, "r") as file:
+            return file.read()
 
-def retrieve(question, n=5):
-    embedded_question = model.encode(
-        [question.lower()],
-        normalize_embeddings=True
-    ).tolist()[0]
+    def build_context(self, question):
+        chunks, metadatas = self.vector_db.retrieve(question, n=5)
 
-    results = collection.query(query_embeddings=[embedded_question], n_results=n)
-    return results["documents"][0], results["metadatas"][0]
+        chunks_formates = ""
+        for i, (chunk, meta) in enumerate(zip(chunks, metadatas)):
+            chunks_formates += f"\n--- Film {i+1} ---\n{chunk}\n"
 
+        context = RAG.read_file("context.txt")
+        return context.replace("{{Chuncks}}", chunks_formates)
 
-def build_context(question):
-    chunks, metadatas = retrieve(question, n=5)
-
-    chunks_formates = ""
-    for i, (chunk, meta) in enumerate(zip(chunks, metadatas)):
-        chunks_formates += f"\n--- Film {i+1} ---\n{chunk}\n"
-
-    context = read_file("context.txt")
-    return context.replace("{{Chuncks}}", chunks_formates)
-
-
-def answer_question(question):
-    chat_completion = client.chat.completions.create(
-        messages=[
-            {
-                "role": "system",
-                "content": build_context(question),
-            },
-            {
-                "role": "user",
-                "content": question,
-            }
-        ],
-        model="llama-3.3-70b-versatile"
-    )
-    return chat_completion.choices[0].message.content
+    def answer_question(self, question):
+        chat_completion = self.client.chat.completions.create(
+            messages=[
+                {
+                    "role": "system",
+                    "content": self.build_context(question),
+                },
+                {
+                    "role": "user",
+                    "content": question,
+                }
+            ],
+            model=LLM_MODEL_NAME
+        )
+        return chat_completion.choices[0].message.content
 
 
 if __name__ == "__main__":
+    rag = RAG(vector_db_name=DB_PATH)
     print("Assistant films TMDB prêt. Tapez 'quit' pour quitter.\n")
     while True:
         question = input("Votre question : ").strip()
@@ -64,4 +52,4 @@ if __name__ == "__main__":
             break
         if not question:
             continue
-        print("\n" + answer_question(question) + "\n")
+        print("\n" + rag.answer_question(question) + "\n")
